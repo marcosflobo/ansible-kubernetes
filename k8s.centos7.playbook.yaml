@@ -1,7 +1,7 @@
 ---
 # Ubuntu
 - hosts: all
-  sudo: yes
+  become: yes
 
   tasks:
   - name: Install Docker
