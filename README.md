@@ -1,2 +1,5 @@
 # ansible-kubernetes
-Ansible playbook to deploy kubernetes cluster
+Ansible playbooks to deploy kubernetes cluster
+
+# Ansible
+Minimal version: 2.5.4
