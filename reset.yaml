@@ -1,0 +1,9 @@
+---
+
+- hosts: all
+  gather_facts: no
+  become: yes
+  tasks:
+    - name: Reset Kubernetes component
+      shell: "kubeadm reset"
+      ignore_errors: True

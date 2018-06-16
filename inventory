@@ -1,8 +1,16 @@
-myk8s-master ansible_ssh_host=192.168.1.45
+k8s-master ansible_ssh_host=192.168.1.45
+k8s-node1 ansible_ssh_host=192.168.1.48
 
-[masternodes]
-myk8s-master
+[masters]
+k8s-master
 
-[masternodes:vars]
+[minions]
+k8s-node1
+
+[k8s-cluster:children]
+masters
+minions
+
+[k8s-cluster:vars]
 ansible_ssh_user=root
 ansible_ssh_pass=123456

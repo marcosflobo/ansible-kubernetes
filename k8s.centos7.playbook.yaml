@@ -1,33 +1,31 @@
 ---
-# Ubuntu
+# CentOS 7
 - hosts: all
   become: yes
 
   tasks:
+  # INSTALL DOCKER
   - name: Install Docker
     yum: name=docker state=present
+    register: docker_installed
 
   - name: Enable Docker
+    when: docker_installed
     service: name=docker enabled=yes state=started
-
-  - name: Install Kubernetes repository
-    shell:
-      cmd: |
-        cat <<EOF > /etc/yum.repos.d/kubernetes.repo
-        [kubernetes]
-        name=Kubernetes
-        baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
-        enabled=1
-        gpgcheck=1
-        repo_gpgcheck=1
-        gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
-        EOF
+    register: docker_enabled
 
   - name: Disable SELinux
     selinux:
       state: disabled
 
+  - name: Disable firewalld
+    systemd:
+      name: firewalld
+      state: stopped
+
+  # INSTALL KUBERNETES
   - name: Install Kubernetes repo
+    when: docker_enabled
     yum_repository:
       name: kubernetes
       description: Kubernetes repository
@@ -56,3 +54,95 @@
 
   - name: Enable Kubelet
     service: name=kubelet enabled=yes state=started
+
+  # Disable SWAPPING
+  - name: Disable system swap
+    shell: "swapoff -a"
+
+  - name: Remove current swaps from fstab
+    lineinfile:
+      dest: /etc/fstab
+      regexp: '(?i)^([^#][\S]+\s+(none|swap)\s+swap.*)'
+      line: '# \1'
+      backrefs: yes
+      state: present
+
+  - name: Disable swappiness and pass bridged IPv4 traffic to iptable's chains
+    sysctl:
+      name: "{{ item.name }}"
+      value: "{{ item.value }}"
+      state: present
+    with_items:
+      - { name: 'vm.swappiness', value: '0' }
+      - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+
+  - name: Restart kubelet
+    systemd:
+      name: kubelet
+      daemon_reload: yes
+      enabled: yes
+
+# MASTERS
+- hosts: masters
+  become: yes
+
+  tasks:
+  # INITIALIZE KUBERNETES CLUSTER
+  - name: Init Kubernetes cluster
+    shell: |
+      kubeadm init --token b0f7b8.8d1767876297d85c
+    register: init_cluster
+
+  - name: Create Kubernetes config directory
+    become: false
+    file: path="~/.kube/" state=directory
+
+  - name: Change permissions of .kube/config
+    file: path=/etc/kubernetes/admin.conf mode=0775
+
+  - name: Copy admin.conf to Home directory
+    when: init_cluster
+    become: false
+    copy:
+      src: "/etc/kubernetes/admin.conf"
+      dest: "~/.kube/config"
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+      mode: 0755
+      remote_src: True
+
+  - name: Enable and restart kubelet engine
+    systemd:
+      name: kubelet
+      daemon_reload: yes
+      state: restarted
+      enabled: yes
+    register: started_kubelet
+
+    # Install POD Network add-on "Wave Net"
+  - name: Install POD Network add-on "Wave Net"
+    when: init_cluster and started_kubelet
+    shell: |
+      kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+
+
+# MINIONS
+- hosts: minions
+  become: yes
+
+  tasks:
+  # Join to the cluster
+  - name: Join minion to cluster
+    shell: |
+      kubeadm join --skip-preflight-checks \
+                   --token b0f7b8.8d1767876297d85c \
+                   --discovery-token-unsafe-skip-ca-verification
+    register: join_cluster
+
+  - name: Enable and restart kubelet engine
+    systemd:
+      name: kubelet
+      daemon_reload: yes
+      state: restarted
+      enabled: yes
+    register: started_kubelet
