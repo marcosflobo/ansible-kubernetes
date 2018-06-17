@@ -4,6 +4,10 @@
   become: yes
 
   tasks:
+  - name: Install YUM-UTILS
+    yum: name=yum-utils state=present
+  - name: yum-complete-transaction
+    shell: yum-complete-transaction --cleanup-only
   # INSTALL DOCKER
   - name: Install Docker
     yum: name=docker state=present
@@ -30,29 +34,37 @@
       name: kubernetes
       description: Kubernetes repository
       baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
-      repo_gpgcheck: 1
-      gpgcheck: 1
+      repo_gpgcheck: 0
+      gpgcheck: 0
       enabled: 1
       gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+    register: kubernetes_repo_installed
 
-  - name: Install GPG keys from Google 1
-    rpm_key:
-      state: present
-      key: https://packages.cloud.google.com/yum/doc/yum-key.gpg
+  - name: Install GPG keys from Google
+    when: kubernetes_repo_installed
+    rpm_key: key={{ item }} state=present
+    with_items:
+      - https://packages.cloud.google.com/yum/doc/yum-key.gpg
+      - https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+    register: keys_installed
 
-  - name: Install GPG keys from Google 2
-    rpm_key:
-      state: present
-      key: https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+  - name: update yum package cache
+    shell: yum -q makecache -y --disablerepo='*' --enablerepo=kubernetes
+
+  - name: yum-complete-transaction
+    shell: yum-complete-transaction --cleanup-only
 
   - name: Install kubelet kubeadm kubectl
-    yum: name={{item}} state=present
+    when: kubernetes_repo_installed and keys_installed
+    yum: name={{item}} state=present update_cache=yes
     with_items:
       - kubelet
       - kubeadm
       - kubectl
+    register: kubernetes_installed
 
   - name: Enable Kubelet
+    when: kubernetes_installed
     service: name=kubelet enabled=yes state=started
 
   # Disable SWAPPING
@@ -124,6 +136,7 @@
     when: init_cluster and started_kubelet
     shell: |
       kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+    register: pod_network_installed
 
 
 # MINIONS
@@ -134,12 +147,14 @@
   # Join to the cluster
   - name: Join minion to cluster
     shell: |
-      kubeadm join --skip-preflight-checks \
+      kubeadm join 192.168.1.37:6443 \
+                   --ignore-preflight-errors=all \
                    --token b0f7b8.8d1767876297d85c \
                    --discovery-token-unsafe-skip-ca-verification
     register: join_cluster
 
   - name: Enable and restart kubelet engine
+    when: join_cluster
     systemd:
       name: kubelet
       daemon_reload: yes
