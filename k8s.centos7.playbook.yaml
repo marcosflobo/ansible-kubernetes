@@ -147,7 +147,7 @@
   # Join to the cluster
   - name: Join minion to cluster
     shell: |
-      kubeadm join 192.168.1.37:6443 \
+      kubeadm join {{ groups['masters'][0] }}:6443 \
                    --ignore-preflight-errors=all \
                    --token b0f7b8.8d1767876297d85c \
                    --discovery-token-unsafe-skip-ca-verification

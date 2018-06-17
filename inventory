@@ -1,11 +1,8 @@
-k8s-master ansible_ssh_host=192.168.1.37
-k8s-node1 ansible_ssh_host=192.168.1.48
-
 [masters]
-k8s-master
+192.168.1.37
 
 [minions]
-k8s-node1
+192.168.1.45
 
 [k8s-cluster:children]
 minions
